@@ -67,7 +67,7 @@ namespace DiskCleaner
             AppDomain.CurrentDomain.BaseDirectory,
             "logs");
 
-        private static readonly string LogFileName = $"disk_cleaner_{DateTime.Now:yyyyMMdd}.log";
+        private static readonly string LogFileName = $"disk_cleaner_{DateTime.Now:ddMMyyyy}.log";
         private static readonly string LogFilePath = Path.Combine(LogsDirectory, LogFileName);
 
         static Logger()
@@ -83,7 +83,7 @@ namespace DiskCleaner
                 if (!Directory.Exists(LogsDirectory))
                 {
                     Directory.CreateDirectory(LogsDirectory);
-                    Console.WriteLine($"{DateTime.Now:dd-MM-yyyyd HH:mm:ss} [INFO] Создана папка для логов: {LogsDirectory}");
+                    Console.WriteLine($"{DateTime.Now:dd-MM-yyyy HH:mm:ss} [INFO] Создана папка для логов: {LogsDirectory}");
                 }
             }
             catch (Exception ex)
@@ -116,7 +116,7 @@ namespace DiskCleaner
         {
             try
             {
-                var logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level}] {message}";
+                var logMessage = $"{DateTime.Now:dd-MM-yyyy HH:mm:ss} [{level}] {message}";
                 Console.WriteLine(logMessage);
 
                 // Убеждаемся, что папка существует перед записью
@@ -126,8 +126,8 @@ namespace DiskCleaner
             catch (Exception ex)
             {
                 // Если не удалось записать в лог, выводим только в консоль
-                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [ERROR] Не удалось записать в лог: {ex.Message}");
-                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level}] {message}");
+                Console.WriteLine($"{DateTime.Now:dd-MM-yyyy HH:mm:ss} [ERROR] Не удалось записать в лог: {ex.Message}");
+                Console.WriteLine($"{DateTime.Now:dd-MM-yyyy HH:mm:ss} [{level}] {message}");
             }
         }
 
@@ -206,8 +206,8 @@ namespace DiskCleaner
 
                 if (logFiles.Count > 0)
                 {
-                    LogInfo($"Самый старый лог: {logFiles.First().Name} ({logFiles.First().LastWriteTime:yyyy-MM-dd})");
-                    LogInfo($"Самый новый лог: {logFiles.Last().Name} ({logFiles.Last().LastWriteTime:yyyy-MM-dd})");
+                    LogInfo($"Самый старый лог: {logFiles.First().Name} ({logFiles.First().LastWriteTime:dd-MM-yyyy})");
+                    LogInfo($"Самый новый лог: {logFiles.Last().Name} ({logFiles.Last().LastWriteTime:dd-MM-yyyy})");
                 }
             }
             catch (Exception ex)
