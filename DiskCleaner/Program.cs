@@ -67,7 +67,7 @@ namespace DiskCleaner
             AppDomain.CurrentDomain.BaseDirectory,
             "logs");
 
-        private static readonly string LogFileName = $"disk_cleaner_{DateTime.Now:ddMMyyyy}.log";
+        private static readonly string LogFileName = $"disk_cleaner_{DateTime.Now:dd-MM-yyyy}.log";
         private static readonly string LogFilePath = Path.Combine(LogsDirectory, LogFileName);
 
         static Logger()
