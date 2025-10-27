@@ -52,9 +52,13 @@ namespace DiskCleaner
         {
             try
             {
-                var options = new JsonSerializerOptions { WriteIndented = true };
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                };
                 var json = JsonSerializer.Serialize(this, options);
-                File.WriteAllText(configPath, json);
+                File.WriteAllText(configPath, json, System.Text.Encoding.UTF8);
             }
             catch (Exception ex)
             {
