@@ -26,3 +26,4 @@ D:\Project\DiskCleaner\DiskCleaner\obj\Release\DiskCleaner.csproj.CoreCompileInp
 D:\Project\DiskCleaner\DiskCleaner\obj\Release\DiskClea.5F234A0E.Up2Date
 D:\Project\DiskCleaner\DiskCleaner\obj\Release\DiskCleaner.exe
 D:\Project\DiskCleaner\DiskCleaner\obj\Release\DiskCleaner.pdb
+D:\Project\DiskCleaner\DiskCleaner\obj\Release\DiskCleaner.exe.config

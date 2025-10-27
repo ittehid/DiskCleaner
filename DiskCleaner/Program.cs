@@ -6,11 +6,12 @@ using System.Text.Json;
 using System.Threading;
 
 namespace DiskCleaner
-{
-    // Класс конфигурации
+{    
     public class AppConfig
     {
-        public List<string> FoldersPaths { get; set; } = new List<string>();
+        public List<string> MonitorFolders { get; set; } = new List<string>();
+        public string ReserveFolder { get; set; } = @"C:\#REZERV#";
+        public int FileMinAgeMinutes { get; set; } = 30;
         public int DiskUsageThreshold { get; set; } = 80;
         public int LogRetentionDays { get; set; } = 10;
 
@@ -23,11 +24,13 @@ namespace DiskCleaner
                     // Создаем конфиг по умолчанию
                     var defaultConfig = new AppConfig
                     {
-                        FoldersPaths = new List<string>
+                        MonitorFolders = new List<string>
                         {
-                            @"C:\Temp",
-                            @"C:\Logs"
+                            @"C:\Канал-1",
+                            @"C:\Канал-2"
                         },
+                        ReserveFolder = @"C:\#REZERV#",
+                        FileMinAgeMinutes = 30,
                         DiskUsageThreshold = 80,
                         LogRetentionDays = 10
                     };
@@ -72,7 +75,6 @@ namespace DiskCleaner
 
         static Logger()
         {
-            // Создаем папку для логов при первом обращении
             EnsureLogsDirectoryExists();
         }
 
@@ -102,9 +104,14 @@ namespace DiskCleaner
             Log("ERROR", message);
         }
 
+        public static void LogMovedFile(string sourcePath, string targetPath)
+        {
+            Log("MOVED", $"Перемещен: {sourcePath} -> {targetPath}");
+        }
+
         public static void LogDeletedFile(string filePath)
         {
-            Log("DELETED", $"Удален файл: {filePath}");
+            Log("DELETED", $"Удален: {filePath}");
         }
 
         public static void LogDeletedLog(string logFileName)
@@ -119,28 +126,22 @@ namespace DiskCleaner
                 var logMessage = $"{DateTime.Now:dd-MM-yyyy HH:mm:ss} [{level}] {message}";
                 Console.WriteLine(logMessage);
 
-                // Убеждаемся, что папка существует перед записью
                 EnsureLogsDirectoryExists();
                 File.AppendAllText(LogFilePath, logMessage + Environment.NewLine);
             }
             catch (Exception ex)
             {
-                // Если не удалось записать в лог, выводим только в консоль
                 Console.WriteLine($"{DateTime.Now:dd-MM-yyyy HH:mm:ss} [ERROR] Не удалось записать в лог: {ex.Message}");
                 Console.WriteLine($"{DateTime.Now:dd-MM-yyyy HH:mm:ss} [{level}] {message}");
             }
         }
 
-        // Метод для очистки старых логов
         public static void CleanOldLogs(int retentionDays)
         {
             try
             {
                 if (!Directory.Exists(LogsDirectory))
-                {
-                    LogInfo("Папка логов не существует, очистка не требуется");
                     return;
-                }
 
                 string logFilePattern = "disk_cleaner_*.log";
                 var logFiles = Directory.GetFiles(LogsDirectory, logFilePattern);
@@ -148,7 +149,6 @@ namespace DiskCleaner
 
                 foreach (var logFile in logFiles)
                 {
-                    // Пропускаем текущий лог-файл дня
                     if (logFile.Equals(LogFilePath, StringComparison.OrdinalIgnoreCase))
                         continue;
 
@@ -164,62 +164,19 @@ namespace DiskCleaner
                     }
                     catch (Exception ex)
                     {
-                        LogError($"Ошибка удаления старого лога {Path.GetFileName(logFile)}: {ex.Message}");
+                        LogError($"Ошибка удаления лога {Path.GetFileName(logFile)}: {ex.Message}");
                     }
                 }
 
                 if (deletedCount > 0)
                 {
-                    LogInfo($"Очистка логов завершена. Удалено файлов: {deletedCount}");
-                }
-                else
-                {
-                    LogInfo("Старые логи для удаления не найдены");
+                    LogInfo($"Очистка логов завершена. Удалено: {deletedCount}");
                 }
             }
             catch (Exception ex)
             {
-                LogError($"Ошибка при очистке старых логов: {ex.Message}");
+                LogError($"Ошибка при очистке логов: {ex.Message}");
             }
-        }
-
-        // Метод для получения информации о лог-файлах
-        public static void DisplayLogInfo()
-        {
-            try
-            {
-                if (!Directory.Exists(LogsDirectory))
-                {
-                    LogInfo("Папка логов не существует");
-                    return;
-                }
-
-                string logFilePattern = "disk_cleaner_*.log";
-                var logFiles = Directory.GetFiles(LogsDirectory, logFilePattern)
-                    .Select(f => new FileInfo(f))
-                    .OrderBy(f => f.LastWriteTime)
-                    .ToList();
-
-                LogInfo($"Папка логов: {LogsDirectory}");
-                LogInfo($"Текущий лог-файл: {Path.GetFileName(LogFilePath)}");
-                LogInfo($"Всего лог-файлов: {logFiles.Count}");
-
-                if (logFiles.Count > 0)
-                {
-                    LogInfo($"Самый старый лог: {logFiles.First().Name} ({logFiles.First().LastWriteTime:dd-MM-yyyy})");
-                    LogInfo($"Самый новый лог: {logFiles.Last().Name} ({logFiles.Last().LastWriteTime:dd-MM-yyyy})");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogError($"Ошибка получения информации о логах: {ex.Message}");
-            }
-        }
-
-        // Метод для получения пути к папке логов (может пригодиться)
-        public static string GetLogsDirectory()
-        {
-            return LogsDirectory;
         }
     }
 
@@ -232,18 +189,14 @@ namespace DiskCleaner
         public DiskCleaner(AppConfig config)
         {
             _config = config;
-            _driveRoot = GetDriveRootFromFirstFolder();
+            _driveRoot = GetDriveRootFromReserveFolder();
         }
 
-        private string GetDriveRootFromFirstFolder()
+        private string GetDriveRootFromReserveFolder()
         {
-            if (_config.FoldersPaths.Count == 0)
-                return null;
-
             try
             {
-                var firstFolder = _config.FoldersPaths[0];
-                var directoryInfo = new DirectoryInfo(firstFolder);
+                var directoryInfo = new DirectoryInfo(_config.ReserveFolder);
                 return Path.GetPathRoot(directoryInfo.FullName);
             }
             catch (Exception)
@@ -254,55 +207,20 @@ namespace DiskCleaner
 
         public void Clean()
         {
-            Logger.LogInfo("=== ЗАПУСК ОЧИСТКИ ДИСКА ===");
-            Logger.LogInfo($"Дата запуска: {DateTime.Now:dd-MM-yyyy HH:mm:ss}");
+            Logger.LogInfo("=== ЗАПУСК ДВУХЭТАПНОЙ ОЧИСТКИ ===");
 
             try
             {
-                // Показываем информацию о логах
-                Logger.DisplayLogInfo();
-
                 // Очищаем старые логи
-                Logger.LogInfo($"Очистка логов старше {_config.LogRetentionDays} дней...");
                 Logger.CleanOldLogs(_config.LogRetentionDays);
 
-                // Проверяем наличие папок в конфигурации
-                if (_config.FoldersPaths.Count == 0)
-                {
-                    Logger.LogError("В конфигурации не указаны папки для очистки");
-                    return;
-                }
+                // Этап 1: Перемещение старых файлов в резерв
+                Logger.LogInfo($"=== ЭТАП 1: ПЕРЕМЕЩЕНИЕ ФАЙЛОВ СТАРШЕ {_config.FileMinAgeMinutes} МИНУТ ===");
+                MoveOldFilesToReserve();
 
-                // Проверяем существование папок
-                var existingFolders = _config.FoldersPaths.Where(Directory.Exists).ToList();
-                if (existingFolders.Count == 0)
-                {
-                    Logger.LogError("Ни одна из указанных папок не существует");
-                    return;
-                }
-
-                // Получаем информацию о диске
-                var driveInfo = GetDriveInfo();
-
-                if (driveInfo == null)
-                {
-                    Logger.LogError("Не удалось получить информацию о диске");
-                    return;
-                }
-
-                double diskUsagePercent = (double)(driveInfo.TotalSize - driveInfo.AvailableFreeSpace) / driveInfo.TotalSize * 100;
-                Logger.LogInfo($"Заполненность диска: {diskUsagePercent:F2}% (порог: {_config.DiskUsageThreshold}%)");
-
-                if (diskUsagePercent < _config.DiskUsageThreshold)
-                {
-                    Logger.LogInfo($"Заполненность диска ({diskUsagePercent:F2}%) ниже порога {_config.DiskUsageThreshold}%. Очистка не требуется.");
-                    return;
-                }
-
-                Logger.LogInfo($"Заполненность диска превышает порог {_config.DiskUsageThreshold}%. Начинаем очистку...");
-
-                // Запускаем процесс очистки
-                CleanUntilThresholdReached();
+                // Этап 2: Очистка резерва при нехватке места
+                Logger.LogInfo("=== ЭТАП 2: ПРОВЕРКА ЗАПОЛНЕННОСТИ ДИСКА ===");
+                CleanReserveIfNeeded();
 
                 Logger.LogInfo("Очистка завершена");
             }
@@ -310,6 +228,191 @@ namespace DiskCleaner
             {
                 Logger.LogError($"Ошибка во время очистки: {ex.Message}");
             }
+        }
+
+        private void MoveOldFilesToReserve()
+        {
+            int movedCount = 0;
+
+            foreach (var monitorFolder in _config.MonitorFolders)
+            {
+                try
+                {
+                    if (!Directory.Exists(monitorFolder))
+                    {
+                        Logger.LogError($"Папка мониторинга не существует: {monitorFolder}");
+                        continue;
+                    }
+
+                    // Создаем соответствующую папку в резерве
+                    string folderName = new DirectoryInfo(monitorFolder).Name;
+                    string reserveSubFolder = Path.Combine(_config.ReserveFolder, folderName);
+                    EnsureDirectoryExists(reserveSubFolder);
+
+                    // Ищем файлы старше указанного времени
+                    var directory = new DirectoryInfo(monitorFolder);
+                    var oldFiles = directory.GetFiles()
+                        .Where(f => (DateTime.Now - f.CreationTime).TotalMinutes >= _config.FileMinAgeMinutes)
+                        .OrderBy(f => f.CreationTime)
+                        .ToList();
+
+                    foreach (var file in oldFiles)
+                    {
+                        try
+                        {
+                            string targetPath = Path.Combine(reserveSubFolder, file.Name);
+
+                            // Если файл с таким именем уже существует, добавляем суффикс
+                            if (File.Exists(targetPath))
+                            {
+                                string fileNameWithoutExt = Path.GetFileNameWithoutExtension(file.Name);
+                                string extension = Path.GetExtension(file.Name);
+                                int counter = 1;
+
+                                do
+                                {
+                                    targetPath = Path.Combine(reserveSubFolder,
+                                        $"{fileNameWithoutExt}_{counter}{extension}");
+                                    counter++;
+                                } while (File.Exists(targetPath));
+                            }
+
+                            File.Move(file.FullName, targetPath);
+                            Logger.LogMovedFile(file.FullName, targetPath);
+                            movedCount++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError($"Ошибка перемещения {file.FullName}: {ex.Message}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError($"Ошибка доступа к папке {monitorFolder}: {ex.Message}");
+                }
+            }
+
+            if (movedCount > 0)
+            {
+                Logger.LogInfo($"Перемещено файлов в резерв: {movedCount}");
+            }
+        }
+
+        private void CleanReserveIfNeeded()
+        {
+            // Получаем информацию о диске
+            var driveInfo = GetDriveInfo();
+            if (driveInfo == null)
+            {
+                Logger.LogError("Не удалось получить информацию о диске");
+                return;
+            }
+
+            double diskUsagePercent = (double)(driveInfo.TotalSize - driveInfo.AvailableFreeSpace) / driveInfo.TotalSize * 100;
+            Logger.LogInfo($"Заполненность диска: {diskUsagePercent:F2}% (порог: {_config.DiskUsageThreshold}%)");
+
+            if (diskUsagePercent < _config.DiskUsageThreshold)
+            {
+                Logger.LogInfo($"Заполненность диска ({diskUsagePercent:F2}%) ниже порога. Очистка резерва не требуется.");
+                return;
+            }
+
+            Logger.LogInfo($"Заполненность диска превышает порог. Начинаем очистку резерва...");
+            CleanReserveUntilThresholdReached();
+        }
+
+        private void CleanReserveUntilThresholdReached()
+        {
+            int iteration = 0;
+            long totalFreedSpace = 0;
+
+            while (true)
+            {
+                iteration++;
+                Logger.LogInfo($"Итерация очистки резерва #{iteration}");
+
+                // Проверяем текущую заполненность диска
+                double currentUsagePercent = GetCurrentDiskUsagePercent();
+
+                if (currentUsagePercent <= _config.DiskUsageThreshold)
+                {
+                    Logger.LogInfo($"Достигнут целевой порог заполненности: {currentUsagePercent:F2}%");
+                    Logger.LogInfo($"Всего освобождено из резерва: {FormatFileSize(totalFreedSpace)}");
+                    break;
+                }
+
+                // Получаем самые старые файлы из всех подпапок резерва
+                var oldestFiles = GetOldestFilesFromReserve();
+
+                if (oldestFiles.Count == 0)
+                {
+                    Logger.LogInfo("В резерве больше нет файлов для удаления");
+                    break;
+                }
+
+                // Удаляем самый старый файл
+                var oldestFile = oldestFiles.OrderBy(f => f.CreationTime).First();
+                try
+                {
+                    long fileSize = oldestFile.Length;
+                    oldestFile.Delete();
+                    Logger.LogDeletedFile(oldestFile.FullName);
+                    Logger.LogInfo($"Освобождено: {FormatFileSize(fileSize)}");
+                    totalFreedSpace += fileSize;
+
+                    // Проверяем заполненность после удаления
+                    currentUsagePercent = GetCurrentDiskUsagePercent();
+
+                    if (currentUsagePercent <= _config.DiskUsageThreshold)
+                    {
+                        Logger.LogInfo($"Достигнут целевой порог. Всего освобождено: {FormatFileSize(totalFreedSpace)}");
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError($"Ошибка удаления {oldestFile.FullName}: {ex.Message}");
+                }
+
+                // Небольшая пауза между итерациями
+                Thread.Sleep(500);
+            }
+        }
+
+        private List<FileInfo> GetOldestFilesFromReserve()
+        {
+            var oldestFiles = new List<FileInfo>();
+
+            if (!Directory.Exists(_config.ReserveFolder))
+                return oldestFiles;
+
+            try
+            {
+                var reserveDir = new DirectoryInfo(_config.ReserveFolder);
+                foreach (var subDir in reserveDir.GetDirectories())
+                {
+                    try
+                    {
+                        var files = subDir.GetFiles();
+                        if (files.Length > 0)
+                        {
+                            var oldestFile = files.OrderBy(f => f.CreationTime).First();
+                            oldestFiles.Add(oldestFile);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError($"Ошибка доступа к папке резерва {subDir.Name}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Ошибка доступа к резервной папке: {ex.Message}");
+            }
+
+            return oldestFiles;
         }
 
         private DriveInfo GetDriveInfo()
@@ -332,123 +435,17 @@ namespace DiskCleaner
         {
             var driveInfo = GetDriveInfo();
             if (driveInfo == null)
-                return 100; // Если не удалось получить информацию, считаем что диск полный
+                return 100;
 
             return (double)(driveInfo.TotalSize - driveInfo.AvailableFreeSpace) / driveInfo.TotalSize * 100;
         }
 
-        private void CleanUntilThresholdReached()
+        private void EnsureDirectoryExists(string path)
         {
-            int iteration = 0;
-            long totalFreedSpace = 0;
-
-            while (true)
+            if (!Directory.Exists(path))
             {
-                iteration++;
-                Logger.LogInfo($"Итерация очистки #{iteration}");
-
-                // Проверяем текущую заполненность диска
-                double currentUsagePercent = GetCurrentDiskUsagePercent();
-
-                if (currentUsagePercent <= _config.DiskUsageThreshold)
-                {
-                    Logger.LogInfo($"Достигнут целевой порог заполненности диска: {currentUsagePercent:F2}%");
-                    Logger.LogInfo($"Всего освобождено: {FormatFileSize(totalFreedSpace)}");
-                    break;
-                }
-
-                // Получаем самые старые файлы из каждой папки
-                var oldestFiles = GetOldestFilesFromFolders();
-
-                // Фильтруем null и несуществующие файлы
-                var validFiles = oldestFiles.Where(f => f != null && f.Exists).ToList();
-
-                if (validFiles.Count == 0)
-                {
-                    Logger.LogInfo("Больше нет файлов для удаления");
-                    break;
-                }
-
-                // Сортируем файлы по дате создания (от самых старых)
-                validFiles.Sort((f1, f2) => f1.CreationTime.CompareTo(f2.CreationTime));
-
-                // Удаляем по одному самому старому файлу из всех папок
-                bool deletedAny = false;
-                foreach (var fileInfo in validFiles)
-                {
-                    if (fileInfo.Exists)
-                    {
-                        try
-                        {
-                            long fileSize = fileInfo.Length;
-                            fileInfo.Delete();
-                            Logger.LogDeletedFile(fileInfo.FullName);
-                            Logger.LogInfo($"Освобождено {FormatFileSize(fileSize)}");
-                            totalFreedSpace += fileSize;
-                            deletedAny = true;
-
-                            // Проверяем заполненность после каждого удаления
-                            currentUsagePercent = GetCurrentDiskUsagePercent();
-
-                            if (currentUsagePercent <= _config.DiskUsageThreshold)
-                            {
-                                Logger.LogInfo($"Достигнут целевой порог после удаления файла. Всего освобождено: {FormatFileSize(totalFreedSpace)}");
-                                break;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogError($"Ошибка удаления файла {fileInfo.FullName}: {ex.Message}");
-                        }
-                    }
-                }
-
-                if (!deletedAny)
-                {
-                    Logger.LogInfo("Не удалось удалить ни одного файла в этой итерации");
-                    break;
-                }
-
-                // Небольшая пауза между итерациями
-                Thread.Sleep(500);
+                Directory.CreateDirectory(path);
             }
-        }
-
-        private List<FileInfo> GetOldestFilesFromFolders()
-        {
-            var oldestFiles = new List<FileInfo>();
-
-            foreach (var folderPath in _config.FoldersPaths)
-            {
-                try
-                {
-                    if (!Directory.Exists(folderPath))
-                    {
-                        Logger.LogError($"Папка не существует: {folderPath}");
-                        oldestFiles.Add(null);
-                        continue;
-                    }
-
-                    var directory = new DirectoryInfo(folderPath);
-                    var files = directory.GetFiles();
-
-                    if (files.Length == 0)
-                    {
-                        oldestFiles.Add(null);
-                        continue;
-                    }
-
-                    var oldestFile = files.OrderBy(f => f.CreationTime).First();
-                    oldestFiles.Add(oldestFile);
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError($"Ошибка доступа к папке {folderPath}: {ex.Message}");
-                    oldestFiles.Add(null);
-                }
-            }
-
-            return oldestFiles;
         }
 
         private string FormatFileSize(long bytes)
@@ -467,34 +464,29 @@ namespace DiskCleaner
         }
     }
 
-    // Главный класс программы
     class Program
     {
         static void Main(string[] args)
         {
             try
             {
-                // Определяем путь к конфигурационному файлу
                 string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "disk_cleaner_config.json");
 
-                // Загружаем конфигурацию (файл создастся автоматически если его нет)
                 Logger.LogInfo("Загрузка конфигурации...");
                 var config = AppConfig.LoadFromFile(configPath);
 
-                Logger.LogInfo($"Настроено папок для очистки: {config.FoldersPaths.Count}");
+                Logger.LogInfo($"Папок для мониторинга: {config.MonitorFolders.Count}");
+                Logger.LogInfo($"Резервная папка: {config.ReserveFolder}");
+                Logger.LogInfo($"Минимальный возраст файла: {config.FileMinAgeMinutes} мин");
                 Logger.LogInfo($"Порог заполненности диска: {config.DiskUsageThreshold}%");
-                Logger.LogInfo($"Срок хранения логов: {config.LogRetentionDays} дней");
 
-                // Проверяем, есть ли папки в конфигурации
-                if (config.FoldersPaths.Count == 0)
+                if (config.MonitorFolders.Count == 0)
                 {
-                    Logger.LogError("В конфигурационном файле не указаны папки для очистки.");
-                    Logger.LogError($"Пожалуйста, отредактируйте файл: {configPath}");
+                    Logger.LogError("В конфигурации не указаны папки для мониторинга.");
                     WaitAndExit();
                     return;
                 }
 
-                // Запускаем очистку
                 var cleaner = new DiskCleaner(config);
                 cleaner.Clean();
             }
@@ -509,8 +501,8 @@ namespace DiskCleaner
 
         static void WaitAndExit()
         {
-            Logger.LogInfo("Консоль закроется автоматически через 5 секунд...");
-            Thread.Sleep(5000); // Задержка 5 секунд
+            Logger.LogInfo("Консоль закроется через 5 секунд...");
+            Thread.Sleep(5000);
         }
     }
 }
