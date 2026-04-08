@@ -334,54 +334,76 @@ namespace DiskCleaner
             while (true)
             {
                 iteration++;
-                Logger.LogInfo($"Итерация очистки резерва #{iteration}");
 
-                // Проверяем текущую заполненность диска
+                // ВСЕГДА получаем актуальную информацию о диске
                 double currentUsagePercent = GetCurrentDiskUsagePercent();
 
+                Logger.LogInfo($"Итерация #{iteration}: заполненность {currentUsagePercent:F2}% (порог {_config.DiskUsageThreshold}%)");
+
+                // Проверяем, достигнут ли порог
                 if (currentUsagePercent <= _config.DiskUsageThreshold)
                 {
-                    Logger.LogInfo($"Достигнут целевой порог заполненности: {currentUsagePercent:F2}%");
-                    Logger.LogInfo($"Всего освобождено из резерва: {FormatFileSize(totalFreedSpace)}");
+                    Logger.LogInfo($"Целевой порог достигнут. Освобождено: {FormatFileSize(totalFreedSpace)}");
                     break;
                 }
 
-                // Получаем самые старые файлы из всех подпапок резерва
-                var oldestFiles = GetOldestFilesFromReserve();
+                // Получаем самый старый файл из резерва
+                var oldestFile = GetSingleOldestFileFromReserve(); // Новый метод
 
-                if (oldestFiles.Count == 0)
+                if (oldestFile == null)
                 {
-                    Logger.LogInfo("В резерве больше нет файлов для удаления");
+                    Logger.LogInfo("В резерве нет файлов для удаления");
                     break;
                 }
 
-                // Удаляем самый старый файл
-                var oldestFile = oldestFiles.OrderBy(f => f.CreationTime).First();
+                // Удаляем файл
                 try
                 {
                     long fileSize = oldestFile.Length;
                     oldestFile.Delete();
                     Logger.LogDeletedFile(oldestFile.FullName);
-                    Logger.LogInfo($"Освобождено: {FormatFileSize(fileSize)}");
                     totalFreedSpace += fileSize;
-
-                    // Проверяем заполненность после удаления
-                    currentUsagePercent = GetCurrentDiskUsagePercent();
-
-                    if (currentUsagePercent <= _config.DiskUsageThreshold)
-                    {
-                        Logger.LogInfo($"Достигнут целевой порог. Всего освобождено: {FormatFileSize(totalFreedSpace)}");
-                        break;
-                    }
+                    Logger.LogInfo($"Освобождено: {FormatFileSize(fileSize)}. Всего освобождено: {FormatFileSize(totalFreedSpace)}");
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError($"Ошибка удаления {oldestFile.FullName}: {ex.Message}");
                 }
 
-                // Небольшая пауза между итерациями
                 Thread.Sleep(500);
             }
+        }
+
+        // Новый вспомогательный метод
+        private FileInfo GetSingleOldestFileFromReserve()
+        {
+            if (!Directory.Exists(_config.ReserveFolder))
+                return null;
+
+            var allFiles = new List<FileInfo>();
+
+            try
+            {
+                var reserveDir = new DirectoryInfo(_config.ReserveFolder);
+                foreach (var subDir in reserveDir.GetDirectories())
+                {
+                    try
+                    {
+                        allFiles.AddRange(subDir.GetFiles());
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError($"Ошибка доступа к папке {subDir.Name}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Ошибка доступа к резервной папке: {ex.Message}");
+                return null;
+            }
+
+            return allFiles.OrderBy(f => f.CreationTime).FirstOrDefault();
         }
 
         private List<FileInfo> GetOldestFilesFromReserve()

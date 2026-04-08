@@ -1,0 +1,10 @@
+﻿{
+  "MonitorFolders": [
+    "C:\\Канал-1",
+    "C:\\Канал-2"
+  ],
+  "ReserveFolder": "C:\\#REZERV#",
+  "FileMinAgeMinutes": 30,
+  "DiskUsageThreshold": 80,
+  "LogRetentionDays": 10
+}
